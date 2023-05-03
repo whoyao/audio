@@ -166,6 +166,7 @@ void FilterGraph::add_process(const std::string& filter_description) {
 }
 
 void FilterGraph::create_filter(AVBufferRef* hw_frames_ctx) {
+
   buffersrc_ctx->outputs[0]->hw_frames_ctx = hw_frames_ctx;
   int ret = avfilter_graph_config(graph, nullptr);
   TORCH_CHECK(ret >= 0, "Failed to configure the graph: " + av_err2string(ret));
