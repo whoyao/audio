@@ -96,7 +96,7 @@ enum AVSampleFormat get_src_sample_fmt(const std::string& src) {
       ".");
 }
 
-enum AVPixelFormat get_src_pix_fmt(const std::string& src) {
+enum AVPixelFormat get_src_pix_fmt(const std::string& src, c10::optional<std::string> hw_accel) {
   AVPixelFormat fmt = av_get_pix_fmt(src.c_str());
   switch (fmt) {
     case AV_PIX_FMT_GRAY8:
@@ -104,6 +104,12 @@ enum AVPixelFormat get_src_pix_fmt(const std::string& src) {
     case AV_PIX_FMT_BGR24:
     case AV_PIX_FMT_YUV444P:
       return fmt;
+#ifdef USE_CUDA
+    case AV_PIX_FMT_CUDA:
+        if (hw_accel) {
+            return fmt;
+        }
+#endif
     default:;
   }
   TORCH_CHECK(
@@ -111,7 +117,7 @@ enum AVPixelFormat get_src_pix_fmt(const std::string& src) {
       "Unsupported pixel format (",
       src,
       ") was provided. Valid values are ",
-      []() -> std::string {
+      [hw_accel]() -> std::string {
         std::vector<std::string> ret;
         for (const auto& fmt :
              {AV_PIX_FMT_GRAY8,
@@ -120,6 +126,14 @@ enum AVPixelFormat get_src_pix_fmt(const std::string& src) {
               AV_PIX_FMT_YUV444P}) {
           ret.emplace_back(av_get_pix_fmt_name(fmt));
         }
+#ifdef USE_CUDA
+        if (hw_accel) {
+            for (const auto& fmt :
+             {AV_PIX_FMT_CUDA}) {
+              ret.emplace_back(av_get_pix_fmt_name(fmt));
+            }
+        }
+#endif
         return c10::Join(", ", ret);
       }(),
       ".");
@@ -854,7 +868,7 @@ EncodeProcess get_video_encode_process(
   // so we directly get the format via FFmpeg.
   const AVPixelFormat src_fmt = (disable_converter)
       ? av_get_pix_fmt(format.c_str())
-      : get_src_pix_fmt(format);
+      : get_src_pix_fmt(format, hw_accel);
   const AVRational src_rate = av_d2q(frame_rate, 1 << 24);
 
   // 2. Fetch codec from default or override
@@ -924,6 +938,8 @@ EncodeProcess get_video_encode_process(
       AVFramePtr frame{alloc_avframe()};
       int ret = av_hwframe_get_buffer(codec_ctx->hw_frames_ctx, frame, 0);
       TORCH_CHECK(ret >= 0, "Failed to fetch CUDA frame: ", av_err2string(ret));
+      frame->nb_samples = 1;
+      frame->pts = 0;
       return frame;
     }
     return get_video_frame(src_fmt, src_width, src_height);
